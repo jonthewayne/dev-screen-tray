@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusItem: NSStatusItem!
     var timer: Timer?
     var reachable = false
+    var dimmed = false                         // best-effort: is the dev screen currently blacked out?
     var guideWindow: NSWindow?
     var sharing: Bool { NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "com.apple.ScreenSharing" } }
 
@@ -47,7 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let settings = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
         let sub = NSMenu()
-        add(sub, "Restore Brightness", #selector(restore))
+        if dimmed { add(sub, "Restore Brightness", #selector(restore)) }
+        else      { add(sub, "Black Out Screen", #selector(black)) }
         sub.addItem(.separator())
         let login = NSMenuItem(title: "Start at Login", action: #selector(toggleLogin), keyEquivalent: "")
         login.target = self; login.state = loginEnabled ? .on : .off; sub.addItem(login)
@@ -73,15 +75,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func connect() {                                                    // connect + black out by default
         run(["connect"]) { _ in }
+        dimmed = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in self?.run(["black"]) { _ in } }  // wait for connect to wake the screen
     }
     @objc func stopShare() {                                                  // close the share + lock + black out the dev
         NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == "com.apple.ScreenSharing" }?.terminate()
         run(["lock"]) { _ in }
         run(["black"]) { _ in }
+        dimmed = true
     }
-    @objc func black()   { run(["black"]) { _ in } }
-    @objc func restore() { run(["restore"]) { _ in } }
+    @objc func black()   { run(["black"]) { _ in }; dimmed = true }
+    @objc func restore() { run(["restore"]) { _ in }; dimmed = false }
     @objc func lock()    { run(["lock"]) { _ in } }
 
     @objc func toggleLogin() {
