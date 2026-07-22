@@ -47,7 +47,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let settings = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
         let sub = NSMenu()
-        add(sub, "Black Out Screen", #selector(black))
         add(sub, "Restore Brightness", #selector(restore))
         sub.addItem(.separator())
         let login = NSMenuItem(title: "Start at Login", action: #selector(toggleLogin), keyEquivalent: "")
