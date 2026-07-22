@@ -23,10 +23,14 @@ over **Tailscale** — from anywhere, not just the same Wi-Fi. Plus the physical
 
 ## Configure
 
-Edit `dev-screen-ctl` for your dev Mac:
+No editing needed — the first time you hit **Connect** (or open **Settings ▸ Dev Machine**), the app
+lists the Macs on your **Tailscale network**, you pick one and enter its **login username** (no password:
+SSH uses your key, macOS handles the screen-share login). It's saved to `~/.config/dev-screen/config`,
+which `dev-screen-ctl` reads:
 ```zsh
 DEV_USER=starborn
 DEV_IP=100.120.153.119
+DEV_HOST=mighteous
 ```
 
 ## Build
