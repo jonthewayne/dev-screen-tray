@@ -1,0 +1,22 @@
+#!/bin/zsh
+# dev-screen-ctl — remote into the dev Mac's screen (Screen Sharing) and control its physical display.
+# Subcommands: connect | black | restore | lock | status
+#   connect  — open Screen Sharing (VNC) to the dev Mac
+#   black    — set the dev Mac's physical brightness to 0 (remote view stays bright)
+#   restore  — restore the dev Mac's brightness
+#   lock     — blank + lock the dev Mac (display sleep; locks with its password setting)
+#   status   — "reachable" / "unreachable" (quick TCP check to SSH port over Tailscale)
+
+DEV_USER=starborn
+DEV_IP=100.120.153.119
+BRIGHTNESS=/usr/local/bin/brightness
+SSH="ssh -o BatchMode=yes -o ConnectTimeout=6 $DEV_USER@$DEV_IP"
+
+case "$1" in
+  connect)  open "vnc://$DEV_USER@$DEV_IP" ;;
+  black)    $SSH "$BRIGHTNESS 0" 2>/dev/null || true ;;
+  restore)  $SSH "$BRIGHTNESS 1" 2>/dev/null || true ;;
+  lock)     $SSH "pmset displaysleepnow" 2>/dev/null || true ;;
+  status)   nc -z -G 2 "$DEV_IP" 22 >/dev/null 2>&1 && echo reachable || echo unreachable ;;
+  *)        echo "usage: dev-screen-ctl {connect|black|restore|lock|status}" >&2; exit 1 ;;
+esac
