@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var timer: Timer?
     var reachable = false
     var guideWindow: NSWindow?
+    var sharing: Bool { NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "com.apple.ScreenSharing" } }
 
     func applicationDidFinishLaunching(_ note: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -37,16 +38,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         header.isEnabled = false; menu.addItem(header)
         menu.addItem(.separator())
 
-        add(menu, "Connect (Screen Share)", #selector(connect))
-        add(menu, "Connect + Black Out", #selector(connectBlack))
-        menu.addItem(.separator())
-        add(menu, "Black Out Screen", #selector(black))
-        add(menu, "Restore Brightness", #selector(restore))
+        if sharing {
+            add(menu, "Stop Screen Share", #selector(stopShare))
+        } else {
+            add(menu, "Connect (Screen Share)", #selector(connect))
+        }
         add(menu, "Lock Dev Mac", #selector(lock))
         menu.addItem(.separator())
 
         let settings = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
         let sub = NSMenu()
+        add(sub, "Black Out Screen", #selector(black))
+        add(sub, "Restore Brightness", #selector(restore))
+        sub.addItem(.separator())
         let login = NSMenuItem(title: "Start at Login", action: #selector(toggleLogin), keyEquivalent: "")
         login.target = self; login.state = loginEnabled ? .on : .off; sub.addItem(login)
         let gd = NSMenuItem(title: "Guide", action: #selector(openGuide), keyEquivalent: ""); gd.target = self; sub.addItem(gd)
@@ -69,10 +73,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    @objc func connect() { run(["connect"]) { _ in } }
-    @objc func connectBlack() {
+    @objc func connect() {                                                    // connect + black out by default
         run(["connect"]) { _ in }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in self?.run(["black"]) { _ in } }  // wait for the connect to wake the screen
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in self?.run(["black"]) { _ in } }  // wait for connect to wake the screen
+    }
+    @objc func stopShare() {                                                  // close the share + lock + black out the dev
+        NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == "com.apple.ScreenSharing" }?.terminate()
+        run(["lock"]) { _ in }
+        run(["black"]) { _ in }
     }
     @objc func black()   { run(["black"]) { _ in } }
     @objc func restore() { run(["restore"]) { _ in } }

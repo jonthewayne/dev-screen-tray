@@ -27,21 +27,23 @@
 <h2>Menu</h2>
 <table>
   <tr><td><strong>Dev Mac: reachable / unreachable</strong></td><td>Live status (quick TCP check to the dev Mac over Tailscale)</td></tr>
-  <tr><td><strong>Connect (Screen Share)</strong></td><td>Opens macOS Screen Sharing to the dev Mac's desktop</td></tr>
-  <tr><td><strong>Connect + Black Out</strong></td><td>Connects, then sets the dev Mac's <em>physical</em> brightness to 0 — nobody there sees your session; your remote view stays bright</td></tr>
-  <tr><td><strong>Black Out Screen</strong> / <strong>Restore Brightness</strong></td><td>Toggle the dev Mac's physical brightness (0 ↔ full)</td></tr>
+  <tr><td><strong>Connect (Screen Share)</strong></td><td>Opens macOS Screen Sharing to the dev Mac <strong>and blacks out its physical screen</strong> — nobody there sees your session; your remote view stays bright</td></tr>
+  <tr><td><strong>Stop Screen Share</strong></td><td>(Shown while sharing) closes the Screen Sharing window, then <strong>locks and blacks out</strong> the dev Mac</td></tr>
   <tr><td><strong>Lock Dev Mac</strong></td><td>Blanks + locks the dev Mac (display sleep; locks with its password setting)</td></tr>
-  <tr><td><strong>Settings ▸</strong></td><td>Start at Login · Guide (this window)</td></tr>
+  <tr><td><strong>Settings ▸</strong></td><td><strong>Black Out Screen</strong> · <strong>Restore Brightness</strong> · Start at Login · Guide</td></tr>
   <tr><td><strong>Quit</strong></td><td>Closes the app (nothing to tear down — actions are one-shot)</td></tr>
 </table>
 
-<h2>Requirements</h2>
-<ul>
-  <li>The dev Mac must be <strong>awake, lid open, and on Tailscale</strong> (works from anywhere — not just same Wi-Fi).</li>
-  <li><strong>Screen Sharing</strong> enabled on the dev Mac; SSH key from this Mac authorized there (for brightness/lock).</li>
-  <li>The <code>brightness</code> CLI installed on the dev Mac (for Black Out / Restore).</li>
-</ul>
-<p class="sub">Config (dev Mac user/IP) lives in <code>dev-screen-ctl</code>. If it says <em>unreachable</em>, the dev Mac is asleep/off or off the tailnet.</p>
+<h2>Setup on the dev machine (one-time)</h2>
+<p>For this app to drive it, the dev Mac needs:</p>
+<table>
+  <tr><td><strong>Tailscale</strong></td><td>signed in; dev Mac awake + lid open. Works from anywhere on the tailnet, not just same Wi-Fi.</td></tr>
+  <tr><td><strong>Screen Sharing</strong></td><td>System Settings → General → Sharing → <strong>Screen Sharing</strong> on. (Leave Remote Management off.)</td></tr>
+  <tr><td><strong>Remote Login + your SSH key</strong></td><td>Remote Login (SSH) on, and this Mac's public key in the dev Mac's <code>~/.ssh/authorized_keys</code> — used for the brightness &amp; lock commands.</td></tr>
+  <tr><td><strong><code>brightness</code> CLI</strong></td><td>installed on the dev Mac at <code>/usr/local/bin/brightness</code> (e.g. <code>brew install brightness</code>) — needed for true-0 Black Out / Restore.</td></tr>
+  <tr><td><strong>Lock on sleep</strong></td><td>dev Mac → System Settings → Lock Screen → "Require password after display off" → <strong>Immediately</strong>, so Lock / Stop Screen Share actually locks it.</td></tr>
+</table>
+<p class="sub">Config (dev Mac user/IP) lives in <code>dev-screen-ctl</code>. If the menu says <em>unreachable</em>, the dev Mac is asleep/off or off the tailnet.</p>
 
 </body>
 </html>
