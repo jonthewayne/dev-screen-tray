@@ -43,7 +43,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             add(menu, "Connect (Screen Share)", #selector(connect))
         }
-        add(menu, "Lock Dev Mac", #selector(lock))
         menu.addItem(.separator())
 
         let settings = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
