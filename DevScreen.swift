@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusItem: NSStatusItem!
     var timer: Timer?
     var reachable = false
+    var netActive = false                      // is the Tailscale network up? (shown before a machine is picked)
     var dimmed = false                         // best-effort: is the dev screen currently blacked out?
     var guideWindow: NSWindow?
     var sharing: Bool { NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "com.apple.ScreenSharing" } }
@@ -67,9 +68,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func populate(_ menu: NSMenu) {
         menu.removeAllItems()
         let headerTitle: String
-        if !configured           { headerTitle = "◌ No dev machine set" }
-        else if reachable        { headerTitle = "🟢 \(machineLabel): reachable" }
-        else                     { headerTitle = "○ \(machineLabel): unreachable" }
+        if !configured           { headerTitle = netActive ? "🟢 Tailscale network active" : "○ Tailscale network inactive" }
+        else if sharing          { headerTitle = "🟢 \(machineLabel): connected" }
+        else if reachable        { headerTitle = "🟢 \(machineLabel): online" }
+        else                     { headerTitle = "○ \(machineLabel): offline" }
         let header = NSMenuItem(title: headerTitle, action: nil, keyEquivalent: "")
         header.isEnabled = false; menu.addItem(header)
         menu.addItem(.separator())
@@ -105,10 +107,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func refresh() {
-        guard configured else { DispatchQueue.main.async { [weak self] in self?.reachable = false }; return }
-        run(["status"]) { [weak self] out in
-            let ok = out.trimmingCharacters(in: .whitespacesAndNewlines) == "reachable"
-            DispatchQueue.main.async { self?.reachable = ok }
+        if configured {
+            run(["status"]) { [weak self] out in
+                let ok = out.trimmingCharacters(in: .whitespacesAndNewlines) == "reachable"
+                DispatchQueue.main.async { self?.reachable = ok }
+            }
+        } else {                                                    // no machine yet — just show whether the tailnet is up
+            run(["net"]) { [weak self] out in
+                let up = out.trimmingCharacters(in: .whitespacesAndNewlines) == "active"
+                DispatchQueue.main.async { self?.netActive = up }
+            }
         }
     }
 
@@ -151,7 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let label = NSTextField(labelWithString: "Username:")
         label.frame = NSRect(x: 0, y: 4, width: 70, height: 20)
         let field = NSTextField(frame: NSRect(x: 74, y: 0, width: 246, height: 24))
-        field.stringValue = devUser.isEmpty ? NSUserName() : devUser
+        field.stringValue = devUser                                 // blank on first run — the login name usually differs from this Mac's
         field.placeholderString = "login username on that Mac"
         box.addSubview(popup); box.addSubview(label); box.addSubview(field)
         alert.accessoryView = box

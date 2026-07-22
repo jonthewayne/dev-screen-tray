@@ -25,6 +25,7 @@ case "$1" in
   restore)  devssh "caffeinate -u -t 1; $BRIGHTNESS 1" 2>/dev/null || true ;;   # wake display + full brightness
   lock)     devssh "pmset displaysleepnow" 2>/dev/null || true ;;
   status)   nc -z -G 2 "$DEV_IP" 22 >/dev/null 2>&1 && echo reachable || echo unreachable ;;
+  net)      "$TS" status >/dev/null 2>&1 && echo active || echo inactive ;;
   machines) # list tailnet peers (excluding self + mobile) as: IP<TAB>hostname
             SELF=$("$TS" ip -4 2>/dev/null | head -1)
             "$TS" status 2>/dev/null | awk -v self="$SELF" \
