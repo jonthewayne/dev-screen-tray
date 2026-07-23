@@ -68,10 +68,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func populate(_ menu: NSMenu) {
         menu.removeAllItems()
         let headerTitle: String
-        // 🟢 green = connected (live session) · 🟡 yellow = ready but not connected · ○ = offline/inactive
-        if !configured           { headerTitle = netActive ? "🟡 Tailscale network active" : "○ Tailscale network inactive" }
+        // 🟢 green = connected (live session) · ○ = everything else (no yellow)
+        if !configured           { headerTitle = netActive ? "○ Tailscale network active" : "○ Tailscale network inactive" }
         else if sharing          { headerTitle = "🟢 \(machineLabel): online, connected" }
-        else if reachable        { headerTitle = "🟡 \(machineLabel): online, not connected" }
+        else if reachable        { headerTitle = "○ \(machineLabel): online, not connected" }
         else                     { headerTitle = "○ \(machineLabel): offline" }
         let header = NSMenuItem(title: headerTitle, action: nil, keyEquivalent: "")
         header.isEnabled = false; menu.addItem(header)
