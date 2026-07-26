@@ -8,9 +8,13 @@ over **Tailscale** — from anywhere, not just the same Wi-Fi. Plus the physical
 ## What you get
 
 - Menu-bar icon (a display glyph) with a live **reachable / unreachable** status.
-- **Connect (Screen Share)** · **Connect + Black Out** (connect, then zero the dev Mac's physical brightness).
+- **Connect (Screen Share)** blacks out the dev Mac and keeps its physical brightness at zero during the session.
 - **Black Out Screen** / **Restore Brightness** / **Lock Dev Mac**.
 - **Start at Login**, in-app **Guide**.
+
+During a screen-sharing session, **Restore Brightness** pauses blackout enforcement and **Black Out
+Screen** resumes it. **Stop Screen Share** stops the monitor immediately, then blacks and sleeps the
+dev Mac's display. No brightness polling runs while disconnected.
 
 ## Requirements
 
@@ -43,7 +47,7 @@ Then turn on **Start at Login** (Settings). (`./build.sh` alone just builds the 
 
 ## How it's built
 
-- `DevScreen.swift` — single-file AppKit menu-bar app (no Xcode project); `swiftc` compiles it.
-- `dev-screen-ctl` — zsh control script (`connect`/`black`/`restore`/`lock`/`status`), bundled in Resources.
+- `DevScreen.swift` + `BlackoutPolicy.swift` — small AppKit menu-bar app (no Xcode project); `swiftc` compiles it.
+- `dev-screen-ctl` — zsh control script (`connect`/`brightness`/`black`/`restore`/`disconnect`/`status`), bundled in Resources.
 - `Info.plist` (`LSUIElement`), `build.sh`, `gen-icon.swift` (icon), `GUIDE.html`.
 - Unsigned local build → runs Gatekeeper-clean when *you* build it (no Apple Developer account needed).

@@ -1,14 +1,20 @@
 #!/bin/zsh
 # dev-screen-ctl — remote into the dev Mac's screen (Screen Sharing) and control its physical display.
-# Subcommands: connect | black | restore | lock | status
+# Subcommands: connect | brightness | black | restore | disconnect | lock | status
 #   connect  — open Screen Sharing (VNC) to the dev Mac
+#   brightness — print the dev Mac's current physical-display brightness
 #   black    — set the dev Mac's physical brightness to 0 (remote view stays bright)
-#   restore  — wake the dev Mac's display + restore full brightness
+#   restore  — wake the dev Mac's display + restore a supplied brightness (default 1)
+#   disconnect — black the physical display, then put it to sleep
 #   lock     — blank + lock the dev Mac (display sleep; locks with its password setting)
 #   status   — "reachable" / "unreachable" (quick TCP check to SSH port over Tailscale)
 
+set -o pipefail
+
 BRIGHTNESS=/usr/local/bin/brightness
 TS=$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale)
+DEV_SCREEN_SSH_BIN="${DEV_SCREEN_SSH_BIN:-ssh}"
+DEV_SCREEN_SSH_TIMEOUT="${DEV_SCREEN_SSH_TIMEOUT:-15}"
 
 # Target dev Mac comes from config (written by the app's Dev Machine picker); fall back to defaults.
 CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/dev-screen/config"
@@ -17,18 +23,33 @@ DEV_USER="${DEV_USER:-starborn}"
 DEV_IP="${DEV_IP:-100.120.153.119}"
 
 # NOTE: zsh does not word-split unquoted vars, so use a function (not SSH="ssh ...").
-devssh() { ssh -o BatchMode=yes -o ConnectTimeout=6 "$DEV_USER@$DEV_IP" "$@"; }
+devssh() {
+  /usr/bin/perl -e 'alarm shift; exec @ARGV' "$DEV_SCREEN_SSH_TIMEOUT" \
+    "$DEV_SCREEN_SSH_BIN" \
+    -o BatchMode=yes \
+    -o ConnectTimeout=6 \
+    -o ServerAliveInterval=5 \
+    -o ServerAliveCountMax=2 \
+    "$DEV_USER@$DEV_IP" "$@"
+}
 
 case "$1" in
-  connect)  open "vnc://$DEV_USER@$DEV_IP" ;;
-  black)    devssh "$BRIGHTNESS 0" 2>/dev/null || true ;;
-  restore)  devssh "caffeinate -u -t 1; $BRIGHTNESS 1" 2>/dev/null || true ;;   # wake display + full brightness
-  lock)     devssh "pmset displaysleepnow" 2>/dev/null || true ;;
-  status)   nc -z -G 2 "$DEV_IP" 22 >/dev/null 2>&1 && echo reachable || echo unreachable ;;
+  connect)     open "vnc://$DEV_USER@$DEV_IP" ;;
+  brightness)  devssh "$BRIGHTNESS -l" | awk '/brightness/ {print $NF; exit}' ;;
+  black)       devssh "$BRIGHTNESS 0" ;;
+  restore)     RESTORE_VALUE="${2:-1}"
+               if ! awk -v value="$RESTORE_VALUE" 'BEGIN { exit !(value ~ /^[0-9]*[.]?[0-9]+$/ && value >= 0 && value <= 1) }'; then
+                 echo "restore brightness must be between 0 and 1" >&2
+                 exit 2
+               fi
+               devssh "caffeinate -u -t 1; $BRIGHTNESS $RESTORE_VALUE" ;;
+  disconnect)  devssh "$BRIGHTNESS 0; black_status=\$?; pmset displaysleepnow; sleep_status=\$?; printf 'black_status=%s sleep_status=%s\\n' \"\$black_status\" \"\$sleep_status\"; (( black_status == 0 && sleep_status == 0 ))" ;;
+  lock)        devssh "pmset displaysleepnow" ;;
+  status)      nc -z -G 2 "$DEV_IP" 22 >/dev/null 2>&1 && echo reachable || echo unreachable ;;
   net)      "$TS" status >/dev/null 2>&1 && echo active || echo inactive ;;
   machines) # list tailnet peers (excluding self + mobile) as: IP<TAB>hostname
             SELF=$("$TS" ip -4 2>/dev/null | head -1)
             "$TS" status 2>/dev/null | awk -v self="$SELF" \
               '$1 ~ /^100\./ && $1 != self && $4 != "iOS" && $4 != "android" && $4 != "tvOS" {print $1"\t"$2}' ;;
-  *)        echo "usage: dev-screen-ctl {connect|black|restore|lock|status|machines}" >&2; exit 1 ;;
+  *)        echo "usage: dev-screen-ctl {connect|brightness|black|restore|disconnect|lock|status|machines}" >&2; exit 1 ;;
 esac

@@ -34,26 +34,24 @@ password. Your choice is saved to <code>~/.config/dev-screen/config</code>; chan
 <h2>Headless by design</h2>
 <p>This treats the dev Mac as a <strong>headless box</strong>. <strong>Connect blacks out its physical
 screen on purpose</strong> — so anyone standing near it can't see your session, while your remote view
-stays fully bright. Need its own screen visible again (e.g. someone's using it in person)? Flip
+stays fully bright. While connected, the app checks every few seconds and re-applies zero brightness if
+macOS wakes or brightens the display. Need its own screen visible again (e.g. someone's using it in person)? Flip
 <strong>Settings ▸ Restore Brightness</strong> (which toggles back to <strong>Black Out Screen</strong>),
-or just press the brightness-up key on the dev Mac itself.</p>
+which pauses that enforcement for the current session. Choose <strong>Black Out Screen</strong> to resume it.</p>
 
 <h2 class="warn">A note on physical security</h2>
-<p>Black Out only zeroes the <em>brightness</em> — it <strong>hides</strong> the screen, it doesn't
-<strong>lock</strong> it. Screen Sharing shares the same session that's on the physical display, so anyone
-standing at the dev Mac could raise the brightness and use your logged-in session. For most setups (dev box
-in a private spot) that's fine. If you need it genuinely locked <em>while you work remotely</em>, use
-<strong>Curtain Mode</strong> — either enable <strong>Remote Management</strong> (which can lock the local
-screen while you're connected), or connect while the Mac sits at its login window so your remote session is
-separate from the physical one. Pair it with <strong>Require password: Immediately</strong> (below).</p>
+<p>Black Out controls <em>brightness</em>; it is not a security boundary or a separate login session.
+Screen Sharing still shares the session on the physical display. For a dev Mac kept in a private spot,
+the enforced dark display is usually sufficient. Pair it with <strong>Require password: Immediately</strong>
+(below) so the machine locks when the sharing session ends.</p>
 
 <h2>Menu</h2>
 <table>
   <tr><td><strong>Dev Mac: reachable / unreachable</strong></td><td>Live status (quick TCP check to the dev Mac over Tailscale)</td></tr>
   <tr><td><strong>Connect (Screen Share)</strong></td><td>Opens macOS Screen Sharing to the dev Mac <strong>and blacks out its physical screen</strong> — nobody there sees your session; your remote view stays bright</td></tr>
-  <tr><td><strong>Stop Screen Share</strong></td><td>(Shown while sharing) closes the Screen Sharing window, then <strong>locks and blacks out</strong> the dev Mac</td></tr>
-  <tr><td><strong>Settings ▸</strong></td><td><strong>Dev Machine</strong> (pick / change target) · <strong>Restore Brightness</strong> · Start at Login · Guide</td></tr>
-  <tr><td><strong>Quit</strong></td><td>Closes the app (nothing to tear down — actions are one-shot)</td></tr>
+  <tr><td><strong>Stop Screen Share</strong></td><td>(Shown while sharing) stops brightness monitoring immediately, closes Screen Sharing, then blacks and sleeps the dev Mac's display</td></tr>
+  <tr><td><strong>Settings ▸</strong></td><td><strong>Dev Machine</strong> (pick / change target) · <strong>Restore Brightness / Black Out Screen</strong> · Start at Login · Guide</td></tr>
+  <tr><td><strong>Quit</strong></td><td>Closes the tray app and stops brightness monitoring; an active Screen Sharing window stays open</td></tr>
 </table>
 
 <h2>Setup on the dev machine (one-time)</h2>
