@@ -10,11 +10,19 @@ over **Tailscale** — from anywhere, not just the same Wi-Fi. Plus the physical
 - Menu-bar icon (a display glyph) with a live **reachable / unreachable** status.
 - **Connect (Screen Share)** blacks out the dev Mac and keeps its physical brightness at zero during the session.
 - **Black Out Screen** / **Restore Brightness** / **Lock Dev Mac**.
+- A separate **This Mac** section shows incoming Screen Sharing viewers and can sleep this display when
+  the final viewer disconnects.
 - **Start at Login**, in-app **Guide**.
 
 During a screen-sharing session, **Restore Brightness** pauses blackout enforcement and **Black Out
 Screen** resumes it. **Stop Screen Share** stops the monitor immediately, then blacks and sleeps the
 dev Mac's display. No brightness polling runs while disconnected.
+
+The local disconnect behavior does not run a permanent `caffeinate`. The app checks at its normal
+eight-second status interval while idle, temporarily checks every two seconds while this Mac has a
+possible incoming Screen Sharing viewer, and stops the faster check after a confirmed disconnect.
+Two consecutive checks confirm both the session and its end, which filters brief port probes and
+transient connections. The setting defaults on and can be disabled under **Settings ▸ This Mac**.
 
 ## Requirements
 
@@ -47,7 +55,7 @@ Then turn on **Start at Login** (Settings). (`./build.sh` alone just builds the 
 
 ## How it's built
 
-- `DevScreen.swift` + `BlackoutPolicy.swift` — small AppKit menu-bar app (no Xcode project); `swiftc` compiles it.
-- `dev-screen-ctl` — zsh control script (`connect`/`brightness`/`black`/`restore`/`disconnect`/`status`), bundled in Resources.
+- `DevScreen.swift` + the policy files — small AppKit menu-bar app (no Xcode project); `swiftc` compiles it.
+- `dev-screen-ctl` — zsh control script for the remote dev Mac plus local viewer detection/display sleep, bundled in Resources.
 - `Info.plist` (`LSUIElement`), `build.sh`, `gen-icon.swift` (icon), `GUIDE.html`.
 - Unsigned local build → runs Gatekeeper-clean when *you* build it (no Apple Developer account needed).

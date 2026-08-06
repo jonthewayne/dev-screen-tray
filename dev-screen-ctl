@@ -1,6 +1,6 @@
 #!/bin/zsh
 # dev-screen-ctl — remote into the dev Mac's screen (Screen Sharing) and control its physical display.
-# Subcommands: connect | brightness | black | restore | disconnect | lock | status
+# Subcommands: connect | brightness | black | restore | disconnect | lock | status | local-viewers | local-sleep
 #   connect  — open Screen Sharing (VNC) to the dev Mac
 #   brightness — print the dev Mac's current physical-display brightness
 #   black    — set the dev Mac's physical brightness to 0 (remote view stays bright)
@@ -8,15 +8,40 @@
 #   disconnect — black the physical display, then put it to sleep
 #   lock     — blank + lock the dev Mac (display sleep; locks with its password setting)
 #   status   — "reachable" / "unreachable" (quick TCP check to SSH port over Tailscale)
+#   local-viewers — count active Screen Sharing viewers connected to this Mac
+#   local-sleep — put this Mac's display to sleep now
 
 set -o pipefail
 
 BRIGHTNESS=/usr/local/bin/brightness
-TS=$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale)
 DEV_SCREEN_SSH_BIN="${DEV_SCREEN_SSH_BIN:-ssh}"
 DEV_SCREEN_SSH_TIMEOUT="${DEV_SCREEN_SSH_TIMEOUT:-15}"
+DEV_SCREEN_NETSTAT_BIN="${DEV_SCREEN_NETSTAT_BIN:-/usr/sbin/netstat}"
+DEV_SCREEN_LOCAL_VIEWERS_TIMEOUT="${DEV_SCREEN_LOCAL_VIEWERS_TIMEOUT:-5}"
+DEV_SCREEN_PMSET_BIN="${DEV_SCREEN_PMSET_BIN:-/usr/bin/pmset}"
+
+# Local-only actions do not need Tailscale or the remote-machine configuration.
+case "$1" in
+  local-viewers)
+    if ! viewer_count=$(
+      /usr/bin/perl -e 'alarm shift; exec @ARGV' "$DEV_SCREEN_LOCAL_VIEWERS_TIMEOUT" \
+        "$DEV_SCREEN_NETSTAT_BIN" -an -p tcp | awk \
+        '$1 ~ /^tcp/ && $4 ~ /[.]5900$/ && $6 == "ESTABLISHED" { count++ } END { print count + 0 }'
+    ); then
+      print -u2 "local viewer probe failed"
+      exit 1
+    fi
+    print -r -- "$viewer_count"
+    exit 0
+    ;;
+  local-sleep)
+    "$DEV_SCREEN_PMSET_BIN" displaysleepnow
+    exit
+    ;;
+esac
 
 # Target dev Mac comes from config (written by the app's Dev Machine picker); fall back to defaults.
+TS=$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale)
 CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/dev-screen/config"
 [[ -f "$CONFIG" ]] && source "$CONFIG"
 DEV_USER="${DEV_USER:-starborn}"
@@ -46,10 +71,10 @@ case "$1" in
   disconnect)  devssh "$BRIGHTNESS 0; black_status=\$?; pmset displaysleepnow; sleep_status=\$?; printf 'black_status=%s sleep_status=%s\\n' \"\$black_status\" \"\$sleep_status\"; (( black_status == 0 && sleep_status == 0 ))" ;;
   lock)        devssh "pmset displaysleepnow" ;;
   status)      nc -z -G 2 "$DEV_IP" 22 >/dev/null 2>&1 && echo reachable || echo unreachable ;;
-  net)      "$TS" status >/dev/null 2>&1 && echo active || echo inactive ;;
+  net)         "$TS" status >/dev/null 2>&1 && echo active || echo inactive ;;
   machines) # list tailnet peers (excluding self + mobile) as: IP<TAB>hostname
             SELF=$("$TS" ip -4 2>/dev/null | head -1)
             "$TS" status 2>/dev/null | awk -v self="$SELF" \
               '$1 ~ /^100\./ && $1 != self && $4 != "iOS" && $4 != "android" && $4 != "tvOS" {print $1"\t"$2}' ;;
-  *)        echo "usage: dev-screen-ctl {connect|brightness|black|restore|disconnect|lock|status|machines}" >&2; exit 1 ;;
+  *)        echo "usage: dev-screen-ctl {connect|brightness|black|restore|disconnect|lock|status|local-viewers|local-sleep|net|machines}" >&2; exit 1 ;;
 esac

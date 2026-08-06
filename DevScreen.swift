@@ -12,11 +12,17 @@ struct CommandResult {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    static let localAutoSleepKey = "sleepLocalDisplayAfterLastViewerDisconnects"
+
     var statusItem: NSStatusItem!
     var statusTimer: Timer?
     var blackoutTimer: Timer?
+    var localViewerTimer: Timer?
     var blackoutCheckInFlight = false
+    var localViewerCheckInFlight = false
+    var localViewerFailureCount = 0
     var blackoutPolicy = BlackoutPolicy()
+    var localDisplayPolicy = LocalDisplayPolicy()
     var blackoutGeneration: UInt = 0
     var connectPending = false
     var disconnectPending = false
@@ -61,6 +67,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        if UserDefaults.standard.object(forKey: Self.localAutoSleepKey) == nil {
+            UserDefaults.standard.set(true, forKey: Self.localAutoSleepKey)
+        }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let menu = NSMenu(); menu.delegate = self          // repopulated on each open
         statusItem.menu = menu
@@ -79,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         statusTimer?.invalidate()
         stopBlackoutMonitor()
+        stopLocalViewerMonitor()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
 
@@ -90,6 +100,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     var loginEnabled: Bool { SMAppService.mainApp.status == .enabled }
+    var localAutoSleepEnabled: Bool {
+        UserDefaults.standard.bool(forKey: Self.localAutoSleepKey)
+    }
 
     func menuNeedsUpdate(_ menu: NSMenu) { refresh(); populate(menu) }
 
@@ -115,13 +128,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let settings = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
         let sub = NSMenu()
+        addSectionHeader(sub, "DEV MAC")
         let dm = add(sub, configured ? "Dev Machine: \(machineLabel)…" : "Dev Machine: not set…", #selector(changeMachine))
         dm.target = self
         dm.isEnabled = !connectPending && !disconnectPending && !sharing && !blackoutPolicy.sessionActive
-        sub.addItem(.separator())
         if dimmed { add(sub, "Restore Brightness", #selector(restore)) }
         else      { add(sub, "Black Out Screen", #selector(black)) }
         sub.addItem(.separator())
+
+        addSectionHeader(sub, "THIS MAC")
+        let viewerTitle = localDisplayPolicy.viewerCount == 1
+            ? "Incoming Screen Sharing: 1 Viewer"
+            : "Incoming Screen Sharing: \(localDisplayPolicy.viewerCount) Viewers"
+        addDisabled(sub, viewerTitle)
+        let autoSleep = add(sub, "Sleep Display After Last Viewer Disconnects", #selector(toggleLocalAutoSleep))
+        autoSleep.state = localAutoSleepEnabled ? .on : .off
+        add(sub, "Sleep This Display Now", #selector(sleepLocalDisplay))
+        sub.addItem(.separator())
+
+        addSectionHeader(sub, "GENERAL")
         let login = NSMenuItem(title: "Start at Login", action: #selector(toggleLogin), keyEquivalent: "")
         login.target = self; login.state = loginEnabled ? .on : .off; sub.addItem(login)
         let gd = NSMenuItem(title: "Guide", action: #selector(openGuide), keyEquivalent: ""); gd.target = self; sub.addItem(gd)
@@ -137,7 +162,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: ""); item.target = self; menu.addItem(item); return item
     }
 
+    func addSectionHeader(_ menu: NSMenu, _ title: String) {
+        addDisabled(menu, title)
+    }
+
+    func addDisabled(_ menu: NSMenu, _ title: String) {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        menu.addItem(item)
+    }
+
     func refresh() {
+        checkLocalViewers()
         if configured {
             run(["status"]) { [weak self] out in
                 let ok = out.trimmingCharacters(in: .whitespacesAndNewlines) == "reachable"
@@ -149,6 +185,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 DispatchQueue.main.async { self?.netActive = up }
             }
         }
+    }
+
+    func checkLocalViewers() {
+        guard !localViewerCheckInFlight else { return }
+        localViewerCheckInFlight = true
+        runCommand(["local-viewers"]) { [weak self] result in
+            let count = result.succeeded
+                ? Int(result.output.trimmingCharacters(in: .whitespacesAndNewlines))
+                : nil
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.localViewerCheckInFlight = false
+                guard let count else {
+                    self.localViewerFailureCount += 1
+                    if self.localViewerFailureCount >= 3 {
+                        self.localViewerFailureCount = 0
+                        self.localDisplayPolicy = LocalDisplayPolicy()
+                        self.stopLocalViewerMonitor()
+                    }
+                    return
+                }
+                self.localViewerFailureCount = 0
+
+                let shouldSleep = self.localDisplayPolicy.observe(
+                    viewerCount: count,
+                    autoSleepEnabled: self.localAutoSleepEnabled
+                )
+                if self.localDisplayPolicy.shouldPollFrequently {
+                    self.startLocalViewerMonitor()
+                } else {
+                    self.stopLocalViewerMonitor()
+                    if shouldSleep { self.sleepLocalDisplay() }
+                }
+            }
+        }
+    }
+
+    func startLocalViewerMonitor() {
+        guard localViewerTimer == nil else { return }
+        localViewerTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            self?.checkLocalViewers()
+        }
+        localViewerTimer?.tolerance = 0.25
+    }
+
+    func stopLocalViewerMonitor() {
+        localViewerTimer?.invalidate()
+        localViewerTimer = nil
+    }
+
+    @objc func sleepLocalDisplay() {
+        runCommand(["local-sleep"]) { result in
+            if !result.succeeded { DispatchQueue.main.async { NSSound.beep() } }
+        }
+    }
+
+    @objc func toggleLocalAutoSleep() {
+        let enabled = !localAutoSleepEnabled
+        UserDefaults.standard.set(enabled, forKey: Self.localAutoSleepKey)
     }
 
     @objc func connect() {                                                    // first run walks you through picking a machine
