@@ -9,21 +9,35 @@ struct CommandResult {
     let status: Int32
 
     var succeeded: Bool { status == 0 }
+    var wasCancelled: Bool { status == -2 }
+}
+
+struct LocalViewerProbeCompletion {
+    let minimumProbeSequence: UInt
+    let handler: (Int?) -> Void
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     static let localAutoSleepKey = "sleepLocalDisplayAfterLastViewerDisconnects"
+    static let localLockedWakeAutoSleepKey = "sleepLocalDisplayAfterLockOrScreenSaver"
+    static let localLockedWakeDelay: TimeInterval = 5
 
     var statusItem: NSStatusItem!
     var statusTimer: Timer?
     var blackoutTimer: Timer?
     var localViewerTimer: Timer?
+    var localLockedWakeTimer: DispatchWorkItem?
     var blackoutCheckInFlight = false
     var localViewerCheckInFlight = false
+    var localViewerProbeSequence: UInt = 0
+    var localViewerProbeCompletions: [LocalViewerProbeCompletion] = []
     var localViewerFailureCount = 0
+    var localDisplaySleepInFlight = false
     var blackoutPolicy = BlackoutPolicy()
     var localDisplayPolicy = LocalDisplayPolicy()
+    var localLockedWakePolicy = LocalLockedWakePolicy()
     var blackoutGeneration: UInt = 0
+    var localLockedWakeGeneration: UInt = 0
     var connectPending = false
     var disconnectPending = false
     var disconnectFallback: DispatchWorkItem?
@@ -70,6 +84,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if UserDefaults.standard.object(forKey: Self.localAutoSleepKey) == nil {
             UserDefaults.standard.set(true, forKey: Self.localAutoSleepKey)
         }
+        if UserDefaults.standard.object(forKey: Self.localLockedWakeAutoSleepKey) == nil {
+            UserDefaults.standard.set(true, forKey: Self.localLockedWakeAutoSleepKey)
+        }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let menu = NSMenu(); menu.delegate = self          // repopulated on each open
         statusItem.menu = menu
@@ -83,13 +100,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             name: NSWorkspace.didTerminateApplicationNotification,
             object: nil
         )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(localScreensDidWake(_:)),
+            name: NSWorkspace.screensDidWakeNotification,
+            object: nil
+        )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(localScreensDidSleep(_:)),
+            name: NSWorkspace.screensDidSleepNotification,
+            object: nil
+        )
+        let distributedCenter = DistributedNotificationCenter.default()
+        distributedCenter.addObserver(
+            self,
+            selector: #selector(localScreenDidLock(_:)),
+            name: Notification.Name("com.apple.screenIsLocked"),
+            object: nil
+        )
+        distributedCenter.addObserver(
+            self,
+            selector: #selector(localScreenDidUnlock(_:)),
+            name: Notification.Name("com.apple.screenIsUnlocked"),
+            object: nil
+        )
+        distributedCenter.addObserver(
+            self,
+            selector: #selector(localScreenSaverDidStart(_:)),
+            name: Notification.Name("com.apple.screensaver.didstart"),
+            object: nil
+        )
+        distributedCenter.addObserver(
+            self,
+            selector: #selector(localScreenSaverDidStop(_:)),
+            name: Notification.Name("com.apple.screensaver.didstop"),
+            object: nil
+        )
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         statusTimer?.invalidate()
         stopBlackoutMonitor()
         stopLocalViewerMonitor()
+        cancelLocalLockedWakeSleep()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
+        DistributedNotificationCenter.default().removeObserver(self)
     }
 
     func applyIcon() {
@@ -102,6 +158,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var loginEnabled: Bool { SMAppService.mainApp.status == .enabled }
     var localAutoSleepEnabled: Bool {
         UserDefaults.standard.bool(forKey: Self.localAutoSleepKey)
+    }
+    var localLockedWakeAutoSleepEnabled: Bool {
+        UserDefaults.standard.bool(forKey: Self.localLockedWakeAutoSleepKey)
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) { refresh(); populate(menu) }
@@ -143,6 +202,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         addDisabled(sub, viewerTitle)
         let autoSleep = add(sub, "Sleep Display After Last Viewer Disconnects", #selector(toggleLocalAutoSleep))
         autoSleep.state = localAutoSleepEnabled ? .on : .off
+        let lockedWakeAutoSleep = add(
+            sub,
+            "Sleep Display 5 Seconds After Lock / Screen Saver",
+            #selector(toggleLocalLockedWakeAutoSleep)
+        )
+        lockedWakeAutoSleep.state = localLockedWakeAutoSleepEnabled ? .on : .off
         add(sub, "Sleep This Display Now", #selector(sleepLocalDisplay))
         sub.addItem(.separator())
 
@@ -187,9 +252,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    func checkLocalViewers() {
+    func checkLocalViewers(
+        requiringFreshResult: Bool = false,
+        then completion: ((Int?) -> Void)? = nil
+    ) {
+        if let completion {
+            let minimumProbeSequence: UInt
+            if localViewerCheckInFlight {
+                minimumProbeSequence = requiringFreshResult
+                    ? localViewerProbeSequence &+ 1
+                    : localViewerProbeSequence
+            } else {
+                minimumProbeSequence = localViewerProbeSequence &+ 1
+            }
+            localViewerProbeCompletions.append(LocalViewerProbeCompletion(
+                minimumProbeSequence: minimumProbeSequence,
+                handler: completion
+            ))
+        }
         guard !localViewerCheckInFlight else { return }
+        startLocalViewerProbe()
+    }
+
+    func startLocalViewerProbe() {
         localViewerCheckInFlight = true
+        localViewerProbeSequence &+= 1
+        let probeSequence = localViewerProbeSequence
         runCommand(["local-viewers"]) { [weak self] result in
             let count = result.succeeded
                 ? Int(result.output.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -197,6 +285,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.localViewerCheckInFlight = false
+                let completions = self.localViewerProbeCompletions
+                    .filter { $0.minimumProbeSequence <= probeSequence }
+                self.localViewerProbeCompletions.removeAll {
+                    $0.minimumProbeSequence <= probeSequence
+                }
                 guard let count else {
                     self.localViewerFailureCount += 1
                     if self.localViewerFailureCount >= 3 {
@@ -204,22 +297,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         self.localDisplayPolicy = LocalDisplayPolicy()
                         self.stopLocalViewerMonitor()
                     }
+                    completions.forEach { $0.handler(nil) }
+                    self.startPendingLocalViewerProbeIfNeeded()
                     return
                 }
                 self.localViewerFailureCount = 0
 
-                let shouldSleep = self.localDisplayPolicy.observe(
-                    viewerCount: count,
-                    autoSleepEnabled: self.localAutoSleepEnabled
-                )
-                if self.localDisplayPolicy.shouldPollFrequently {
-                    self.startLocalViewerMonitor()
-                } else {
-                    self.stopLocalViewerMonitor()
-                    if shouldSleep { self.sleepLocalDisplay() }
+                if self.observeLocalViewerCount(count) {
+                    self.requestLocalDisplaySleep()
                 }
+                completions.forEach { $0.handler(count) }
+                self.startPendingLocalViewerProbeIfNeeded()
             }
         }
+    }
+
+    func startPendingLocalViewerProbeIfNeeded() {
+        guard !localViewerCheckInFlight, !localViewerProbeCompletions.isEmpty else { return }
+        startLocalViewerProbe()
+    }
+
+    @discardableResult
+    func observeLocalViewerCount(_ count: Int) -> Bool {
+        let shouldSleep = localDisplayPolicy.observe(
+            viewerCount: count,
+            autoSleepEnabled: localAutoSleepEnabled
+        )
+        if localDisplayPolicy.shouldPollFrequently {
+            startLocalViewerMonitor()
+        } else {
+            stopLocalViewerMonitor()
+        }
+        return shouldSleep
     }
 
     func startLocalViewerMonitor() {
@@ -236,14 +345,121 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func sleepLocalDisplay() {
-        runCommand(["local-sleep"]) { result in
-            if !result.succeeded { DispatchQueue.main.async { NSSound.beep() } }
+        requestLocalDisplaySleep()
+    }
+
+    func requestLocalDisplaySleep(
+        onlyIf shouldStart: (() -> Bool)? = nil,
+        completion: ((Bool) -> Void)? = nil
+    ) {
+        guard !localDisplaySleepInFlight else {
+            completion?(false)
+            return
+        }
+        localDisplaySleepInFlight = true
+        runCommand(["local-sleep"], shouldStart: shouldStart) { result in
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.localDisplaySleepInFlight = false
+                if !result.succeeded && !result.wasCancelled { NSSound.beep() }
+                completion?(result.succeeded)
+            }
         }
     }
 
     @objc func toggleLocalAutoSleep() {
         let enabled = !localAutoSleepEnabled
         UserDefaults.standard.set(enabled, forKey: Self.localAutoSleepKey)
+    }
+
+    @objc func toggleLocalLockedWakeAutoSleep() {
+        let enabled = !localLockedWakeAutoSleepEnabled
+        UserDefaults.standard.set(enabled, forKey: Self.localLockedWakeAutoSleepKey)
+        updateLocalLockedWakeSleepTimer(restarting: enabled)
+    }
+
+    @objc func localScreensDidWake(_ notification: Notification) {
+        localLockedWakePolicy.screensDidWake()
+        updateLocalLockedWakeSleepTimer(restarting: true)
+    }
+
+    @objc func localScreensDidSleep(_ notification: Notification) {
+        localLockedWakePolicy.screensDidSleep()
+        cancelLocalLockedWakeSleep()
+    }
+
+    @objc func localScreenDidLock(_ notification: Notification) {
+        localLockedWakePolicy.screenDidLock()
+        updateLocalLockedWakeSleepTimer(restarting: true)
+    }
+
+    @objc func localScreenDidUnlock(_ notification: Notification) {
+        localLockedWakePolicy.screenDidUnlock()
+        cancelLocalLockedWakeSleep()
+    }
+
+    @objc func localScreenSaverDidStart(_ notification: Notification) {
+        localLockedWakePolicy.screenSaverDidStart()
+        updateLocalLockedWakeSleepTimer(restarting: true)
+    }
+
+    @objc func localScreenSaverDidStop(_ notification: Notification) {
+        localLockedWakePolicy.screenSaverDidStop()
+        updateLocalLockedWakeSleepTimer(restarting: true)
+    }
+
+    func updateLocalLockedWakeSleepTimer(restarting: Bool = false) {
+        guard localLockedWakeAutoSleepEnabled, localLockedWakePolicy.shouldSleepDisplay else {
+            cancelLocalLockedWakeSleep()
+            return
+        }
+        if restarting { cancelLocalLockedWakeSleep() }
+        guard localLockedWakeTimer == nil else { return }
+
+        localLockedWakeGeneration &+= 1
+        let generation = localLockedWakeGeneration
+        let work = DispatchWorkItem { [weak self] in
+            self?.lockedWakeSleepTimerDidFire(generation: generation)
+        }
+        localLockedWakeTimer = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.localLockedWakeDelay, execute: work)
+    }
+
+    func cancelLocalLockedWakeSleep() {
+        localLockedWakeGeneration &+= 1
+        localLockedWakeTimer?.cancel()
+        localLockedWakeTimer = nil
+    }
+
+    func canStartLocalLockedWakeSleep(generation: UInt) -> Bool {
+        generation == localLockedWakeGeneration &&
+            localLockedWakeAutoSleepEnabled &&
+            localLockedWakePolicy.shouldSleepDisplay
+    }
+
+    func lockedWakeSleepTimerDidFire(generation: UInt) {
+        guard canStartLocalLockedWakeSleep(generation: generation) else { return }
+        localLockedWakeTimer = nil
+
+        // Require a probe started after this timer fired before sleeping a display under a new viewer.
+        checkLocalViewers(requiringFreshResult: true) { [weak self] viewerCount in
+            guard
+                let self
+            else { return }
+            switch LocalLockedWakeAction.nextAction(
+                generationIsCurrent: generation == self.localLockedWakeGeneration,
+                autoSleepEnabled: self.localLockedWakeAutoSleepEnabled,
+                shouldSleepDisplay: self.localLockedWakePolicy.shouldSleepDisplay,
+                viewerCount: viewerCount
+            ) {
+            case .cancel, .waitForViewerDisconnect:
+                return
+            case .sleepDisplay:
+                self.requestLocalDisplaySleep(onlyIf: { [weak self] in
+                    self?.canStartLocalLockedWakeSleep(generation: generation) ?? false
+                })
+            }
+        }
     }
 
     @objc func connect() {                                                    // first run walks you through picking a machine
@@ -544,20 +760,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         runCommand(args) { done($0.output) }
     }
 
-    func runCommand(_ args: [String], done: @escaping (CommandResult) -> Void) {
-        runChecked(args, on: .global(), done: done)
+    func runCommand(
+        _ args: [String],
+        shouldStart: (() -> Bool)? = nil,
+        done: @escaping (CommandResult) -> Void
+    ) {
+        runChecked(args, on: .global(), shouldStart: shouldStart, done: done)
     }
 
-    func runDisplay(_ args: [String], done: @escaping (CommandResult) -> Void) {
-        runChecked(args, on: displayCommandQueue, done: done)
+    func runDisplay(
+        _ args: [String],
+        shouldStart: (() -> Bool)? = nil,
+        done: @escaping (CommandResult) -> Void
+    ) {
+        runChecked(args, on: displayCommandQueue, shouldStart: shouldStart, done: done)
     }
 
     private func runChecked(
         _ args: [String],
         on queue: DispatchQueue,
+        shouldStart: (() -> Bool)? = nil,
         done: @escaping (CommandResult) -> Void
     ) {
         queue.async {
+            if let shouldStart {
+                let mayStart = Thread.isMainThread
+                    ? shouldStart()
+                    : DispatchQueue.main.sync(execute: shouldStart)
+                guard mayStart else {
+                    done(CommandResult(output: "", status: -2))
+                    return
+                }
+            }
             let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/zsh"); p.arguments = [ctlPath] + args
             let outPipe = Pipe()
             p.standardOutput = outPipe; p.standardError = FileHandle.nullDevice

@@ -25,6 +25,7 @@ run_ctl() {
   DEV_SCREEN_NETSTAT_BIN="$MOCK_NETSTAT" \
   DEV_SCREEN_LOCAL_VIEWERS_TIMEOUT=1 \
   DEV_SCREEN_PMSET_BIN="$MOCK_PMSET" \
+  DEV_SCREEN_LOCAL_SLEEP_TIMEOUT=1 \
   DEV_SCREEN_TEST_LOG="$LOG" \
   DEV_SCREEN_NETSTAT_TEST_LOG="$NETSTAT_LOG" \
   DEV_SCREEN_PMSET_TEST_LOG="$PMSET_LOG" \
@@ -104,5 +105,11 @@ run_ctl local-sleep
 if MOCK_PMSET_EXIT=1 run_ctl local-sleep >/dev/null 2>&1; then
   fail "local-sleep must propagate a pmset failure"
 fi
+
+start_seconds=$SECONDS
+if MOCK_PMSET_HANG=1 run_ctl local-sleep >/dev/null 2>&1; then
+  fail "local-sleep must fail when pmset exceeds its deadline"
+fi
+(( SECONDS - start_seconds < 3 )) || fail "local-sleep deadline must bound a hung pmset"
 
 print "dev-screen-ctl contract tests passed"

@@ -7,7 +7,7 @@ APP="Dev Screen.app"
 INSTALLED="/Applications/Dev Screen.app"
 
 echo "compiling…"
-swiftc DevScreen.swift BlackoutPolicy.swift LocalDisplayPolicy.swift -framework ServiceManagement -framework WebKit -o DevScreen
+swiftc DevScreen.swift BlackoutPolicy.swift LocalDisplayPolicy.swift LocalLockedWakePolicy.swift -framework ServiceManagement -framework WebKit -o DevScreen
 
 echo "assembling $APP…"
 rm -rf "$APP"

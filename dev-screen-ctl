@@ -19,6 +19,7 @@ DEV_SCREEN_SSH_TIMEOUT="${DEV_SCREEN_SSH_TIMEOUT:-15}"
 DEV_SCREEN_NETSTAT_BIN="${DEV_SCREEN_NETSTAT_BIN:-/usr/sbin/netstat}"
 DEV_SCREEN_LOCAL_VIEWERS_TIMEOUT="${DEV_SCREEN_LOCAL_VIEWERS_TIMEOUT:-5}"
 DEV_SCREEN_PMSET_BIN="${DEV_SCREEN_PMSET_BIN:-/usr/bin/pmset}"
+DEV_SCREEN_LOCAL_SLEEP_TIMEOUT="${DEV_SCREEN_LOCAL_SLEEP_TIMEOUT:-5}"
 
 # Local-only actions do not need Tailscale or the remote-machine configuration.
 case "$1" in
@@ -35,7 +36,8 @@ case "$1" in
     exit 0
     ;;
   local-sleep)
-    "$DEV_SCREEN_PMSET_BIN" displaysleepnow
+    /usr/bin/perl -e 'alarm shift; exec @ARGV' "$DEV_SCREEN_LOCAL_SLEEP_TIMEOUT" \
+      "$DEV_SCREEN_PMSET_BIN" displaysleepnow
     exit
     ;;
 esac

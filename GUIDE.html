@@ -24,15 +24,21 @@
 <h1>Dev Screen</h1>
 <p class="sub">One-click remote-in to the dev Mac's screen (over Tailscale), plus its physical-display controls.</p>
 
-<h2>This Mac after an incoming session</h2>
+<h2>This Mac display safeguards</h2>
 <p>Under <strong>Settings ▸ This Mac</strong>, Dev Screen shows how many Screen Sharing viewers are
 connected to this Mac. <strong>Sleep Display After Last Viewer Disconnects</strong> defaults on: when
 the final viewer leaves, the local display sleeps once. Two consecutive checks confirm the session
-and its end, so brief probes and transient connections do not trigger display sleep. It does not keep
-a permanent <code>caffeinate</code> process running. The faster viewer check runs only while confirming
-or tracking an incoming session; otherwise it uses the app's normal status refresh. You can disable
-the setting or choose
-<strong>Sleep This Display Now</strong> at any time.</p>
+and its end, so brief probes and transient connections do not trigger display sleep. The faster viewer
+check runs only while confirming or tracking an incoming session; otherwise it uses the app's normal
+status refresh.</p>
+<p><strong>Sleep Display 5 Seconds After Lock / Screen Saver</strong> also defaults on. If the display
+wakes while the Mac is still locked—or a screen saver starts—it waits five seconds, then sleeps only
+the display again. Unlocking cancels the countdown, and the app checks for an incoming Screen Sharing
+viewer before acting. This prevents a bumped keyboard, trackpad, or pet from leaving the screen lit
+indefinitely. Neither safeguard runs a permanent <code>caffeinate</code> process or sleeps the Mac:
+both request only display sleep through a five-second-bounded <code>pmset displaysleepnow</code>
+command, so local agents keep running. You can disable either
+setting or choose <strong>Sleep This Display Now</strong> at any time.</p>
 
 <h2>First time: pick your dev machine</h2>
 <p>The first time you hit <strong>Connect</strong> (or open <strong>Settings ▸ Dev Machine</strong>), it
@@ -61,7 +67,7 @@ the enforced dark display is usually sufficient. Pair it with <strong>Require pa
   <tr><td><strong>Connect (Screen Share)</strong></td><td>Opens macOS Screen Sharing to the dev Mac <strong>and blacks out its physical screen</strong> — nobody there sees your session; your remote view stays bright</td></tr>
   <tr><td><strong>Stop Screen Share</strong></td><td>(Shown while sharing) stops brightness monitoring immediately, closes Screen Sharing, then blacks and sleeps the dev Mac's display</td></tr>
   <tr><td><strong>Settings ▸ Dev Mac</strong></td><td><strong>Dev Machine</strong> (pick / change target) · <strong>Restore Brightness / Black Out Screen</strong></td></tr>
-  <tr><td><strong>Settings ▸ This Mac</strong></td><td>Incoming viewer count · sleep-after-disconnect toggle · sleep this display now</td></tr>
+  <tr><td><strong>Settings ▸ This Mac</strong></td><td>Incoming viewer count · sleep-after-disconnect toggle · 5-second lock / screen-saver auto-sleep toggle · sleep this display now</td></tr>
   <tr><td><strong>Settings ▸ General</strong></td><td>Start at Login · Guide</td></tr>
   <tr><td><strong>Quit</strong></td><td>Closes the tray app and stops brightness monitoring; an active Screen Sharing window stays open</td></tr>
 </table>

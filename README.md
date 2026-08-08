@@ -11,18 +11,25 @@ over **Tailscale** — from anywhere, not just the same Wi-Fi. Plus the physical
 - **Connect (Screen Share)** blacks out the dev Mac and keeps its physical brightness at zero during the session.
 - **Black Out Screen** / **Restore Brightness** / **Lock Dev Mac**.
 - A separate **This Mac** section shows incoming Screen Sharing viewers and can sleep this display when
-  the final viewer disconnects.
+  the final viewer disconnects. It also re-sleeps an accidentally woken locked / screen-saver display
+  after five seconds.
 - **Start at Login**, in-app **Guide**.
 
 During a screen-sharing session, **Restore Brightness** pauses blackout enforcement and **Black Out
 Screen** resumes it. **Stop Screen Share** stops the monitor immediately, then blacks and sleeps the
 dev Mac's display. No brightness polling runs while disconnected.
 
-The local disconnect behavior does not run a permanent `caffeinate`. The app checks at its normal
+The local display safeguards do not run a permanent `caffeinate`. The app checks at its normal
 eight-second status interval while idle, temporarily checks every two seconds while this Mac has a
 possible incoming Screen Sharing viewer, and stops the faster check after a confirmed disconnect.
 Two consecutive checks confirm both the session and its end, which filters brief port probes and
-transient connections. The setting defaults on and can be disabled under **Settings ▸ This Mac**.
+transient connections. The default-on **Sleep Display 5 Seconds After Lock / Screen Saver** control
+uses one-shot macOS wake, lock, and screen-saver events instead of polling: a locked or screen-saver
+display that wakes goes dark again after five seconds unless it is unlocked or an incoming viewer is
+present. It requests display sleep through a five-second-bounded `pmset displaysleepnow` command, so a
+stuck power-management request cannot block later manual or automatic actions. Both local controls
+sleep only the display—the Mac and its agents keep running.
+Either setting can be disabled under **Settings ▸ This Mac**.
 
 ## Requirements
 
